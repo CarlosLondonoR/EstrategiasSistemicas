@@ -1,2 +1,1834 @@
-<!doctype html><html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Rotación Regional</title><script src="./Libraries/plotly.min.js"></script><style>@font-face{font-family:SuraSans;src:url('./Format/SuraSans-Regular.otf')}@font-face{font-family:SuraSans;font-weight:700;src:url('./Format/SuraSans-Bold.otf')}@font-face{font-family:SuraSansLight;src:url('./Format/SuraSans-Ligera.otf')}:root{--bg:#f6f8fb;--card:#fff;--txt:#162033;--mut:#68758a;--bd:#dce3ee;--acc:#1d5cff;--grid:#e6edf6;--head:#eef3fb;--chip:#eef4ff}[data-theme=dark]{--bg:#0d1421;--card:#131e2d;--txt:#eef4ff;--mut:#a7b3c7;--bd:#29384f;--acc:#74a7ff;--grid:#26364e;--head:#18263a;--chip:#1b2a42}*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--txt);font-family:SuraSans,Arial}.app{max-width:1500px;margin:auto;padding:24px}header{display:flex;justify-content:space-between}h1{margin:0 0 6px}.mut{color:var(--mut);font-family:SuraSansLight}.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:16px}.card{grid-column:span 12;background:var(--card);border:1px solid var(--bd);border-radius:18px;padding:16px;box-shadow:0 10px 28px #12203814}.s8{grid-column:span 8}.s4{grid-column:span 4}.s6{grid-column:span 6}.controls{display:grid;grid-template-columns:2fr 2fr 1fr 1fr;gap:12px}.box{max-height:150px;overflow:auto;border:1px solid var(--bd);border-radius:12px;padding:8px}.box label{display:block;margin:5px}.field label{font-size:12px;color:var(--mut)}input,select,button{background:var(--card);color:var(--txt);border:1px solid var(--bd);border-radius:10px;padding:8px;font-family:SuraSans}button{cursor:pointer}.primary{background:var(--acc);color:white}.msg{background:var(--chip);color:var(--mut);padding:10px;border-radius:12px;margin:8px 0}.err{color:#c62828}.ok{color:#2e7d32}.chart{height:410px}.small{height:350px}.tbl{overflow:auto;max-height:560px;border:1px solid var(--bd);border-radius:14px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{padding:8px;border-bottom:1px solid var(--bd);white-space:nowrap}th{background:var(--head);position:sticky;top:0;cursor:pointer}.pick{display:grid;grid-template-columns:24px 1fr 80px;gap:8px;margin:5px}.pill{display:inline-block;background:var(--chip);padding:4px 8px;border-radius:999px;margin:3px}@media(max-width:900px){.s8,.s4,.s6{grid-column:span 12}.controls{grid-template-columns:1fr}}</style></head><body><div class="app"><header><div><h1>Rotación Regional | Backtesting Sistemático</h1><div class="mut">CSV local, Plotly local, reglas base y combinadas sin backend.</div></div><button id="theme">☾</button></header><main class="grid"><section class="card"><h2>1. Filtros y configuración</h2><div id="status" class="msg">Cargando BD.csv...</div><div id="filters" class="controls"></div><div id="ranges"></div><div class="mut">Rangos rápidos solo afectan visualización; el backtest usa todo el historial.</div></section><section class="card"><h2>2. Gráficas de datos base</h2><div id="base"></div></section><section class="card s8"><h2>3. Desempeño de reglas base</h2><div id="perf" class="chart"></div></section><section class="card s4"><h2>Resumen</h2><div id="sum" class="msg"></div></section><section class="card"><h2>4. Ranking de reglas</h2><div id="rank" class="tbl"></div></section><section class="card"><h2>5. Gestor de reglas combinadas</h2><div id="cmsg"></div><div id="manager"></div><h2>Subreglas internas</h2><div id="ctable" class="tbl"></div></section><section class="card"><h2>6. Detalle de estrategia activa: pesos y ZScores</h2><div class="field"><label>Estrategia activa</label><select id="active"></select></div><div class="grid"><div class="s6"><div id="weights" class="chart small"></div></div><div class="s6"><div id="zs" class="chart small"></div></div></div></section></main></div><script>
-const A=(()=>{const W={"1M":30,"3M":91,"6M":182,"12M":365,"24M":730,"36M":1095},ORDER=['EEUU','Europa','Japón','Asia EM','Latam'],COL=['#1f77ff','#ff7f0e','#2ecc71','#e83e8c','#9467bd','#00bcd4','#f1c40f','#d62728'],EPS=1e-10,S={dates:[],data:{},countries:[],metrics:[],selC:[],selM:[],vs:null,ve:null,ret:{},base:[],comb:[],all:[],sort:{k:'ir',d:'desc'},active:null,next:1,theme:'light'};$=i=>document.getElementById(i);function initApp(){theme();loadCsv()}async function loadCsv(){try{let r=await fetch('./BD.csv',{cache:'no-store'});if(!r.ok)throw Error('No se pudo cargar ./BD.csv');parseCsv(await r.text());ffill();detectUniverseAndMetrics();calcReturns();S.selC=[...S.countries];S.selM=S.metrics.filter(x=>x!='Precio');if(!S.selM.length)S.selM=[...S.metrics];S.vs=commonStart()||S.dates[0];S.ve=S.dates.at(-1);buildFilters();recalc();$('status').className='msg ok';$('status').textContent='BD.csv cargado correctamente'}catch(e){$('status').className='msg err';$('status').textContent=e.message}}function parseCsv(t){let L=t.replace(/^\uFEFF/,'').split(/\r?\n/).filter(x=>x.trim()),H=L[0].split(';').map(x=>x.trim());if(H[0]!='Fecha')throw Error('La primera columna debe llamarse Fecha');H.slice(1).forEach(h=>S.data[h]=[]);for(let i=1;i<L.length;i++){let p=L[i].split(';'),d=parseDate(p[0]);if(!d)continue;S.dates.push(d);H.slice(1).forEach((h,j)=>S.data[h].push(num(p[j+1])))}if(!S.dates.length)throw Error('Sin fechas válidas')}function parseDate(s){let p=String(s).trim().split(/[\/\-.]/).map(Number),d=/^\d{4}/.test(s)?new Date(String(s).slice(0,10)+'T00:00:00'):p[0]>1900?new Date(p[0],p[1]-1,p[2]):new Date(p[2],p[1]-1,p[0]);return isNaN(d)?null:d}function num(x){let s=String(x??'').trim().replace(/\s/g,'');if(!s)return NaN;if(s.includes(',')&&s.includes('.'))s=s.replace(/\./g,'').replace(',','.');else s=s.replace(',','.');let n=Number(s);return Number.isFinite(n)?n:NaN}function ffill(){Object.keys(S.data).forEach(k=>{let l=NaN;S.data[k]=S.data[k].map(v=>Number.isFinite(v)?(l=v):l)})}function detectUniverseAndMetrics(){let c=new Set,m=new Set;Object.keys(S.data).forEach(x=>{let i=x.indexOf('_');if(i>0){c.add(x.slice(0,i));m.add(x.slice(i+1))}});S.countries=[...c].sort((a,b)=>(ORDER.indexOf(a)<0?99:ORDER.indexOf(a))-(ORDER.indexOf(b)<0?99:ORDER.indexOf(b)));S.metrics=[...m].sort((a,b)=>a=='Precio'?1:b=='Precio'?-1:a.localeCompare(b))}function ser(c,m){return S.data[`${c}_${m}`]||[]}function calcReturns(){S.countries.forEach(c=>{let p=ser(c,'Precio');S.ret[c]=p.map((v,i)=>i&&Number.isFinite(v)&&Number.isFinite(p[i-1])&&p[i-1]!=0?v/p[i-1]-1:NaN)})}function commonStart(){let idx=0;S.selC.forEach(c=>S.selM.forEach(m=>{let k=ser(c,m).findIndex(Number.isFinite);if(k>idx)idx=k}));return S.dates[idx]}function buildFilters(){let f=$('filters');f.innerHTML=check('Países / buckets','c',S.countries,S.selC)+check('Métricas','m',S.metrics,S.selM)+`<div class=field><label>Inicio</label><input id=start type=date value=${ds(S.vs)}></div><div class=field><label>Fin</label><input id=end type=date value=${ds(S.ve)}></div>`;f.querySelectorAll('input[type=checkbox]').forEach(x=>x.onchange=()=>{S.selC=[...document.querySelectorAll('[data-t=c]:checked')].map(x=>x.value);S.selM=[...document.querySelectorAll('[data-t=m]:checked')].map(x=>x.value);recalc()});$('start').onchange=e=>{S.vs=new Date(e.target.value+'T00:00:00');views()};$('end').onchange=e=>{S.ve=new Date(e.target.value+'T00:00:00');views()};$('ranges').innerHTML=['YTD','6M','1Y','2Y','5Y','10Y','Desde inicio'].map(r=>`<button onclick="A.quick('${r}')">${r}</button>`).join(' ')}function check(l,t,a,s){return`<div class=field><label>${l}</label><div class=box>${a.map(x=>`<label><input data-t=${t} type=checkbox value="${esc(x)}" ${s.includes(x)?'checked':''}> ${esc(x)}</label>`).join('')}</div></div>`}function quick(r){let e=S.dates.at(-1),st=new Date(e);if(r=='YTD')st=new Date(e.getFullYear(),0,1);else if(r=='Desde inicio')st=commonStart()||S.dates[0];else{let n=parseInt(r);st.setMonth(st.getMonth()-(r.includes('M')?n:n*12))}S.vs=st;S.ve=e;$('start').value=ds(st);$('end').value=ds(e);views()}function recalc(){S.base=[];if(S.selC.length&&S.selM.length)S.base=buildBaseRules();S.comb=S.comb.map(recalcCombined).filter(Boolean);S.all=[...S.base,...S.comb];S.active=S.all.some(r=>r.id==S.active)?S.active:S.all[0]?.id;views(true)}function buildBaseRules(){let out=[];S.selM.filter(m=>m!='Precio').forEach(m=>Object.entries(W).forEach(([w,d])=>{let a=rule(m,w,d,1),b=rule(m,w,d,-1);a.m.ac===b.m.ac?out.push(a,b):out.push(a.m.ac>=b.m.ac?a:b)}));return out}function rule(m,w,d,sgn){let z=zscore(m,d),wt=weights(z,sgn),p=evaluate(wt),o=sgn==1?'Direct':'Contrarian';return{id:`base|${m}|${w}|${o}`,name:`Regla ${m.replace(/\(FWD\)/i,'')} ${w} (${o})`,type:'base',metric:m,win:w,ori:o,countries:[...S.selC],z,wt,ret:p.r,curve:p.c,m:metrics(p.r,p.start),components:[]}}function zscore(m,d){let z={};S.selC.forEach(c=>{let s=ser(c,m);z[c]=s.map((v,i)=>{let h=s.slice(Math.max(0,i-d),i).filter(Number.isFinite);if(h.length<d*.7||!Number.isFinite(v))return 0;let mu=h.reduce((a,b)=>a+b,0)/h.length,sd=Math.sqrt(h.reduce((a,b)=>a+(b-mu)**2,0)/(h.length-1||1));return sd>EPS?(v-mu)/sd:0})});return z}function weights(z,sgn){let w={};S.selC.forEach(c=>w[c]=Array(S.dates.length).fill(0));for(let i=0;i<S.dates.length;i++){let r={},mu=0;S.selC.forEach(c=>mu+=(r[c]=sgn*(z[c]?.[i]||0)));mu/=S.selC.length||1;S.selC.forEach(c=>r[c]-=mu);r=norm(r);S.selC.forEach(c=>w[c][i]=r[c]||0)}return w}function norm(w){let ks=Object.keys(w),s=ks.reduce((a,k)=>a+w[k],0);ks.forEach(k=>w[k]-=s/(ks.length||1));let g=ks.reduce((a,k)=>a+Math.abs(w[k]),0);if(g>EPS)ks.forEach(k=>w[k]/=g);let mx=Math.max(0,...ks.map(k=>Math.abs(w[k]))),sc=mx>.5?.5/mx:1;ks.forEach(k=>w[k]*=sc);s=ks.reduce((a,k)=>a+w[k],0);ks.forEach(k=>w[k]-=s/(ks.length||1));return w}function evaluate(w){let r=Array(S.dates.length).fill(NaN),start=null,c=[],acc=100;for(let i=1;i<S.dates.length;i++){let x=0,ok=false;S.selC.forEach(cc=>{let wt=w[cc]?.[i-1]||0,rr=S.ret[cc]?.[i];if(Number.isFinite(rr)&&Math.abs(wt)>EPS){x+=wt*rr;ok=true}});let g=S.selC.reduce((a,cc)=>a+Math.abs(w[cc]?.[i-1]||0),0);if(ok&&g>EPS){r[i]=x;if(start===null)start=i}}for(let i=0;i<S.dates.length;i++){if(i<start||start===null)c[i]=NaN;else{if(Number.isFinite(r[i]))acc*=1+r[i];c[i]=acc}}return{r,c,start}}function metrics(r,start){let v=r.slice(start??r.length).filter(Number.isFinite),n=v.length;if(!n)return{ac:NaN,aa:NaN,ir:NaN,so:NaN,mdd:NaN,hit:NaN,vol:NaN,n:0};let ac=v.reduce((a,b)=>a*(1+b),1)-1,mu=v.reduce((a,b)=>a+b,0)/n,sd=Math.sqrt(v.reduce((a,b)=>a+(b-mu)**2,0)/(n-1||1)),dn=v.filter(x=>x<0),dsd=Math.sqrt(dn.reduce((a,b)=>a+b*b,0)/(dn.length||1)),acc=100,pk=100,mdd=0;v.forEach(x=>{acc*=1+x;pk=Math.max(pk,acc);mdd=Math.min(mdd,acc/pk-1)});return{ac,aa:Math.pow(1+ac,252/n)-1,ir:sd>EPS?mu/sd*Math.sqrt(252):NaN,so:dsd>EPS?mu/dsd*Math.sqrt(252):NaN,mdd,hit:v.filter(x=>x>0).length/n,vol:sd*Math.sqrt(252),n}}function manager(){let rules=[...S.base,...S.comb];$('manager').innerHTML=`<div><input id=cname placeholder=ReglaCombinada${S.next}> <button class=primary onclick=A.createCombined()>Crear regla combinada</button> <button onclick=A.clearCombined()>Borrar reglas</button></div><div class=box>${rules.map(r=>`<div class=pick><input class=cc type=checkbox value="${esc(r.id)}"><span>${esc(r.name)}</span><input data-w="${esc(r.id)}" type=number step=.01 value=0></div>`).join('')}</div><div>${S.comb.map(r=>`<span class=pill>${esc(r.name)} <button onclick="A.deleteCombinedRule('${r.id}')">x</button></span>`).join('')||'<div class=msg>Aún no hay reglas combinadas.</div>'}</div>`;document.querySelectorAll('.cc').forEach(x=>x.onchange=()=>{let a=[...document.querySelectorAll('.cc:checked')];a.forEach(y=>document.querySelector(`input[data-w="${cssEsc(y.value)}"]`).value=(1/a.length).toFixed(6))});combinedTable()}function createCombined(){let picks=[...document.querySelectorAll('.cc:checked')].map(x=>({id:x.value,weight:num(document.querySelector(`input[data-w="${cssEsc(x.value)}"]`).value)}));if(!picks.length)return msg('Seleccione al menos una regla',1);let sum=picks.reduce((a,b)=>a+b.weight,0);if(picks.some(x=>!Number.isFinite(x.weight))||Math.abs(sum-1)>1e-8)return msg('Los pesos deben ser numéricos y sumar exactamente 1',1);let r={id:`combined|${Date.now()}`,name:$('cname').value.trim()||`ReglaCombinada${S.next}`,type:'combinada',metric:'Combinada',win:'-',ori:'-',countries:[...S.selC],components:picks};if(depth(r)>2)return msg('Máximo 2 niveles de anidación permitido',1);r=recalcCombined(r);if(!r)return msg('Regla inválida o circular',1);S.comb.push(r);S.next++;S.active=r.id;recalc();msg('Regla combinada creada',0)}function recalcCombined(r){let all=[...S.base,...S.comb].filter(x=>x.id!=r.id),cs=r.components.map(c=>({r:all.find(x=>x.id==c.id),w:c.weight}));if(cs.some(x=>!x.r))return null;let wt={},z={};S.selC.forEach(c=>{wt[c]=Array(S.dates.length).fill(0);z[c]=Array(S.dates.length).fill(0)});for(let i=0;i<S.dates.length;i++){let rw={};S.selC.forEach(c=>rw[c]=0);cs.forEach(x=>S.selC.forEach(c=>{rw[c]+=x.w*(x.r.wt[c]?.[i]||0);z[c][i]+=x.w*(x.r.z[c]?.[i]||0)}));rw=norm(rw);S.selC.forEach(c=>wt[c][i]=rw[c]||0)}let p=evaluate(wt);return{...r,wt,z,ret:p.r,curve:p.c,m:metrics(p.r,p.start)}}function depth(r){let get=id=>S.comb.find(x=>x.id==id),dep=x=>!x||x.type!='combinada'?0:1+Math.max(0,...x.components.map(c=>dep(get(c.id))));return dep(r)}function deleteCombinedRule(id){S.comb=S.comb.filter(r=>r.id!=id&&!r.components.some(c=>c.id==id));recalc()}function clearCombined(){S.comb=[];recalc()}function views(rebuild){baseCharts();perfChart();ranking();if(rebuild)manager();activeSelect();detail();summary()}function baseCharts(){let b=$('base');b.innerHTML='';if(!S.selC.length||!S.selM.length){b.innerHTML='<div class=msg>Seleccione al menos un país y una métrica.</div>';return}S.selM.forEach(m=>{let d=document.createElement('div');d.className='chart plot';b.appendChild(d);Plotly.newPlot(d,S.selC.map((c,i)=>({x:fdates(),y:fser(ser(c,m)),mode:'lines',name:c,line:{color:COL[i%COL.length]}})),lay('Datos base: '+m,m),cfg())})}function perfChart(){let top=[...S.base].sort((a,b)=>(b.m.ir??-99)-(a.m.ir??-99)).slice(0,10);Plotly.newPlot('perf',top.map((r,i)=>({x:fdates(),y:fser(r.curve),mode:'lines',name:r.name,line:{color:COL[i%COL.length]}})),lay('Curva acumulada de alpha | Top 10','Índice 100'),cfg())}function ranking(){let rows=[...S.all],k=S.sort.k,d=S.sort.d;rows.sort((a,b)=>cmp(val(a,k),val(b,k),d));let H=[['name','nombre'],['type','tipo'],['metric','métrica'],['win','ventana'],['ori','orientación'],['countries','países incluidos'],['ac','alpha acumulado'],['aa','alpha anualizado'],['ir','IR anualizado'],['so','Sortino anualizado'],['mdd','max drawdown'],['hit','hit ratio'],['vol','desv. estándar anualizada'],['n','obs. válidas']];$('rank').innerHTML=`<table><thead><tr>${H.map(h=>`<th data-k=${h[0]}>${h[1]}</th>`).join('')}</tr></thead><tbody>${rows.map(r=>`<tr><td>${esc(r.name)}</td><td>${r.type}</td><td>${esc(r.metric)}</td><td>${r.win}</td><td>${r.ori}</td><td>${esc(r.countries.join(', '))}</td><td>${pct(r.m.ac)}</td><td>${pct(r.m.aa)}</td><td>${n(r.m.ir)}</td><td>${n(r.m.so)}</td><td>${pct(r.m.mdd)}</td><td>${pct(r.m.hit)}</td><td>${pct(r.m.vol)}</td><td>${r.m.n}</td></tr>`).join('')}</tbody></table>`;document.querySelectorAll('#rank th').forEach(th=>th.onclick=()=>{S.sort={k:th.dataset.k,d:S.sort.k==th.dataset.k&&S.sort.d=='desc'?'asc':'desc'};ranking()})}function combinedTable(){$('ctable').innerHTML='<table><tr><th>Regla combinada</th><th>Subregla</th><th>Peso</th></tr>'+S.comb.flatMap(r=>r.components.map(c=>`<tr><td>${esc(r.name)}</td><td>${esc(find(c.id))}</td><td>${n(c.weight)}</td></tr>`)).join('')+'</table>'}function activeSelect(){let s=$('active');s.innerHTML=S.all.map(r=>`<option value="${esc(r.id)}" ${r.id==S.active?'selected':''}>${esc(r.name)}</option>`).join('');s.onchange=e=>{S.active=e.target.value;detail()}}function detail(){let r=S.all.find(x=>x.id==S.active);if(!r)return;Plotly.newPlot('weights',S.selC.map((c,i)=>({x:fdates(),y:fser(r.wt[c]||[]),mode:'lines',name:c,line:{color:COL[i%COL.length]}})),lay('Pesos: '+r.name,'Peso'),cfg());Plotly.newPlot('zs',S.selC.map((c,i)=>({x:fdates(),y:fser(r.z[c]||[]),mode:'lines',name:c,line:{color:COL[i%COL.length]}})),lay('ZScores: '+r.name,'ZScore'),cfg())}function summary(){let b=[...S.all].sort((a,b)=>(b.m.ir??-99)-(a.m.ir??-99))[0];$('sum').innerHTML=b?`<b>Mejor IR:</b> ${esc(b.name)}<br><b>IR anualizado:</b> ${n(b.m.ir)}<br><b>Alpha acumulado:</b> ${pct(b.m.ac)}<br><b>Reglas base:</b> ${S.base.length}<br><b>Combinadas:</b> ${S.comb.length}`:'No hay reglas calculables.'}function lay(t,y){return{title:t,paper_bgcolor:css('--card'),plot_bgcolor:css('--card'),font:{family:'SuraSans',color:css('--txt')},xaxis:{gridcolor:css('--grid')},yaxis:{title:y,gridcolor:css('--grid')},hovermode:'x unified',legend:{orientation:'h'}}}function cfg(){return{responsive:true,displaylogo:false}}function theme(){$('theme').onclick=()=>{S.theme=S.theme=='dark'?'light':'dark';document.documentElement.dataset.theme=S.theme;$('theme').textContent=S.theme=='dark'?'☀':'☾';views()}}function fdates(){return S.dates.filter(d=>d>=S.vs&&d<=S.ve).map(ds)}function fser(a){return a.filter((_,i)=>S.dates[i]>=S.vs&&S.dates[i]<=S.ve).map(x=>Number.isFinite(x)?x:null)}function ds(d){return d.toISOString().slice(0,10)}function css(v){return getComputedStyle(document.documentElement).getPropertyValue(v).trim()}function esc(s){return String(s).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}function cssEsc(s){return String(s).replace(/\\/g,'\\\\').replace(/"/g,'\\"')}function pct(x){return Number.isFinite(x)?(x*100).toFixed(2)+'%':'-'}function n(x){return Number.isFinite(x)?x.toFixed(3):'-'}function val(r,k){return k in r?r[k]:r.m[k]}function cmp(a,b,d){if(Array.isArray(a))a=a.join(', ');if(Array.isArray(b))b=b.join(', ');if(typeof a=='string'||typeof b=='string')return(d=='desc'?-1:1)*String(a).localeCompare(String(b));a=Number.isFinite(a)?a:-Infinity;b=Number.isFinite(b)?b:-Infinity;return d=='desc'?b-a:a-b}function find(id){return(S.all.find(r=>r.id==id)||{}).name||id}function msg(t,e){$('cmsg').innerHTML=`<div class="msg ${e?'err':'ok'}">${esc(t)}</div>`}return{initApp,quick,createCombined,deleteCombinedRule,clearCombined}})();document.addEventListener('DOMContentLoaded',A.initApp)</script></body></html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Rotación Regional | Backtesting Sistemático</title>
+  <script src="./Libraries/plotly.min.js"></script>
+  <style>
+    @font-face{font-family:SuraSans;src:url('./Format/SuraSans-Regular.otf') format('opentype');font-weight:400;font-style:normal;font-display:swap}
+    @font-face{font-family:SuraSans;src:url('./Format/SuraSans-Bold.otf') format('opentype');font-weight:700;font-style:normal;font-display:swap}
+    @font-face{font-family:SuraSansLight;src:url('./Format/SuraSans-Ligera.otf') format('opentype');font-weight:300;font-style:normal;font-display:swap}
+
+    :root{
+      --bg:#f6f8fb;
+      --card:#ffffff;
+      --text:#162033;
+      --muted:#68758a;
+      --border:#dce3ee;
+      --accent:#1d5cff;
+      --danger:#c62828;
+      --ok:#2e7d32;
+      --shadow:0 10px 28px rgba(18,32,56,.08);
+      --input:#ffffff;
+      --grid:#e6edf6;
+      --thead:#eef3fb;
+      --chip:#eef4ff;
+      --hover:#f3f7ff;
+    }
+
+    [data-theme="dark"]{
+      --bg:#0d1421;
+      --card:#131e2d;
+      --text:#eef4ff;
+      --muted:#a7b3c7;
+      --border:#29384f;
+      --accent:#74a7ff;
+      --danger:#ff7b7b;
+      --ok:#8fd694;
+      --shadow:0 12px 32px rgba(0,0,0,.35);
+      --input:#101928;
+      --grid:#26364e;
+      --thead:#18263a;
+      --chip:#1b2a42;
+      --hover:#1b2a42;
+    }
+
+    *{box-sizing:border-box}
+
+    body{
+      margin:0;
+      background:var(--bg);
+      color:var(--text);
+      font-family:SuraSans,Arial,sans-serif;
+    }
+
+    .app{
+      max-width:1540px;
+      margin:0 auto;
+      padding:24px;
+    }
+
+    header{
+      display:flex;
+      justify-content:space-between;
+      align-items:flex-start;
+      gap:16px;
+      margin-bottom:18px;
+    }
+
+    h1{
+      font-size:28px;
+      margin:0 0 6px;
+      font-weight:700;
+    }
+
+    h2{
+      font-size:18px;
+      margin:0 0 14px;
+      font-weight:700;
+    }
+
+    .sub,
+    .note{
+      color:var(--muted);
+      font-family:SuraSansLight;
+    }
+
+    .note{
+      font-size:11px;
+      margin-top:8px;
+    }
+
+    .theme-btn{
+      border:1px solid var(--border);
+      background:var(--card);
+      color:var(--text);
+      border-radius:999px;
+      padding:10px 14px;
+      cursor:pointer;
+      box-shadow:var(--shadow);
+      font-size:18px;
+    }
+
+    .grid{
+      display:grid;
+      grid-template-columns:repeat(12,1fr);
+      gap:16px;
+    }
+
+    .card{
+      background:var(--card);
+      border:1px solid var(--border);
+      border-radius:18px;
+      box-shadow:var(--shadow);
+      padding:16px;
+    }
+
+    .span-12{grid-column:span 12}
+    .span-8{grid-column:span 8}
+    .span-6{grid-column:span 6}
+    .span-4{grid-column:span 4}
+
+    .controls{
+      display:grid;
+      grid-template-columns:2fr 2fr 1fr 1fr;
+      gap:14px;
+    }
+
+    .field label{
+      display:block;
+      font-size:12px;
+      color:var(--muted);
+      margin-bottom:6px;
+    }
+
+    .checklist{
+      max-height:154px;
+      overflow:auto;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:8px;
+      background:var(--input);
+    }
+
+    .checklist label{
+      display:flex;
+      gap:7px;
+      align-items:center;
+      margin:5px 0;
+      font-size:13px;
+      color:var(--text);
+    }
+
+    input,
+    select,
+    button{
+      font-family:SuraSans;
+    }
+
+    input,
+    select{
+      width:100%;
+      background:var(--input);
+      color:var(--text);
+      border:1px solid var(--border);
+      border-radius:10px;
+      padding:9px;
+    }
+
+    .btn-row{
+      display:flex;
+      gap:8px;
+      flex-wrap:wrap;
+      margin-top:10px;
+    }
+
+    .btn{
+      border:1px solid var(--border);
+      background:var(--card);
+      color:var(--text);
+      border-radius:10px;
+      padding:8px 11px;
+      cursor:pointer;
+    }
+
+    .btn.primary{
+      background:var(--accent);
+      border-color:var(--accent);
+      color:white;
+    }
+
+    .btn.danger{
+      color:var(--danger);
+    }
+
+    .msg{
+      padding:10px 12px;
+      border-radius:12px;
+      background:var(--chip);
+      color:var(--muted);
+      margin:8px 0;
+      font-size:13px;
+    }
+
+    .msg.error{
+      background:rgba(198,40,40,.12);
+      color:var(--danger);
+    }
+
+    .msg.ok{
+      background:rgba(46,125,50,.12);
+      color:var(--ok);
+    }
+
+    .chart{
+      height:420px;
+      width:100%;
+    }
+
+    .small-chart{
+      height:360px;
+    }
+
+    .table-wrap{
+      overflow:auto;
+      max-height:560px;
+      border:1px solid var(--border);
+      border-radius:14px;
+    }
+
+    table{
+      width:100%;
+      border-collapse:collapse;
+      font-size:12px;
+    }
+
+    th,
+    td{
+      padding:9px 10px;
+      border-bottom:1px solid var(--border);
+      white-space:nowrap;
+      text-align:left;
+    }
+
+    th{
+      position:sticky;
+      top:0;
+      background:var(--thead);
+      z-index:1;
+      cursor:pointer;
+      font-weight:700;
+    }
+
+    tr:hover td{
+      background:var(--hover);
+    }
+
+    .combine-grid{
+      display:grid;
+      grid-template-columns:1fr 2fr;
+      gap:14px;
+    }
+
+    .rule-picker{
+      max-height:330px;
+      overflow:auto;
+      border:1px solid var(--border);
+      border-radius:12px;
+      padding:8px;
+    }
+
+    .pick-row{
+      display:grid;
+      grid-template-columns:24px 1fr 95px;
+      gap:8px;
+      align-items:center;
+      margin:6px 0;
+    }
+
+    .pill{
+      display:inline-block;
+      padding:4px 8px;
+      border-radius:999px;
+      background:var(--chip);
+      color:var(--muted);
+      margin:3px;
+    }
+
+    @media(max-width:1050px){
+      .span-8,
+      .span-6,
+      .span-4{
+        grid-column:span 12;
+      }
+
+      .controls,
+      .combine-grid{
+        grid-template-columns:1fr;
+      }
+
+      .app{
+        padding:14px;
+      }
+
+      .chart{
+        height:340px;
+      }
+    }
+  </style>
+</head>
+
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>Rotación Regional | Backtesting Sistemático</h1>
+      <div class="sub">
+        MVP browser-only con CSV local, señales sin look-ahead, reglas base y combinadas.
+      </div>
+    </div>
+    <button id="themeToggle" class="theme-btn" title="Cambiar tema">☾</button>
+  </header>
+
+  <main class="grid">
+    <section class="card span-12">
+      <h2>1. Filtros y configuración</h2>
+      <div id="loadStatus" class="msg">Cargando BD.csv...</div>
+      <div id="filters" class="controls"></div>
+      <div id="quickRanges" class="btn-row"></div>
+      <div class="note">
+        Los rangos rápidos solo afectan visualización. Los backtests usan el historial completo disponible por regla.
+      </div>
+    </section>
+
+    <section class="card span-12">
+      <h2>2. Gráficas de datos base</h2>
+      <div id="baseCharts"></div>
+    </section>
+
+    <section class="card span-8">
+      <h2>3. Desempeño de reglas base</h2>
+      <div id="performanceChart" class="chart"></div>
+    </section>
+
+    <section class="card span-4">
+      <h2>Resumen</h2>
+      <div id="summaryBox" class="msg">Sin cálculo todavía.</div>
+    </section>
+
+    <section class="card span-12">
+      <h2>4. Ranking de reglas</h2>
+      <div id="rankingTable" class="table-wrap"></div>
+    </section>
+
+    <section class="card span-12">
+      <h2>5. Gestor de reglas combinadas</h2>
+      <div id="combineMsg"></div>
+      <div id="combinedManager"></div>
+
+      <h2 style="margin-top:16px">Subreglas internas</h2>
+      <div id="combinedRulesTable" class="table-wrap"></div>
+    </section>
+
+    <section class="card span-12">
+      <h2>6. Detalle de estrategia activa: pesos y ZScores</h2>
+      <div class="field" style="max-width:560px">
+        <label>Estrategia activa</label>
+        <select id="activeStrategySelect"></select>
+      </div>
+
+      <div class="grid" style="margin-top:12px">
+        <div class="span-6">
+          <div id="weightsChart" class="chart small-chart"></div>
+        </div>
+        <div class="span-6">
+          <div id="zscoreChart" class="chart small-chart"></div>
+        </div>
+      </div>
+    </section>
+  </main>
+</div>
+
+<script>
+'use strict';
+
+const App = (() => {
+  const WINDOWS = {
+    "1M": 30,
+    "3M": 91,
+    "6M": 182,
+    "12M": 365,
+    "24M": 730,
+    "36M": 1095
+  };
+
+  const UNIVERSE_ORDER = ['EEUU', 'Europa', 'Japón', 'Asia EM', 'Latam'];
+
+  const COLORS = [
+    '#1f77ff',
+    '#ff7f0e',
+    '#2ecc71',
+    '#e83e8c',
+    '#9467bd',
+    '#00bcd4',
+    '#f1c40f',
+    '#d62728',
+    '#17becf',
+    '#7f7f7f'
+  ];
+
+  const EPS = 1e-10;
+
+  const state = {
+    theme: 'light',
+    dates: [],
+    data: {},
+    countries: [],
+    metrics: [],
+    selectedCountries: [],
+    selectedMetrics: [],
+    visualStart: null,
+    visualEnd: null,
+    baseRules: [],
+    combinedRules: [],
+    allRules: [],
+    rankingSort: { key: 'irAnn', dir: 'desc' },
+    activeRuleId: null,
+    returns: {},
+    nextCombined: 1,
+    csvDelimiter: null
+  };
+
+  const $ = id => document.getElementById(id);
+
+  const fmt = {
+    pct: x => Number.isFinite(x) ? (x * 100).toFixed(2) + '%' : '-',
+    num: x => Number.isFinite(x) ? x.toFixed(3) : '-',
+    int: x => Number.isFinite(x) ? String(x) : '-'
+  };
+
+  function initApp() {
+    renderThemeToggle();
+    loadCsv();
+
+    window.addEventListener('resize', () => {
+      document.querySelectorAll('.js-plot').forEach(d => Plotly.Plots.resize(d));
+    });
+  }
+
+  async function loadCsv() {
+    try {
+      const res = await fetch('./BD.csv', { cache: 'no-store' });
+
+      if (!res.ok) {
+        throw new Error('No fue posible cargar ./BD.csv. Verifique que exista en la raíz del repositorio.');
+      }
+
+      parseCsv(await res.text());
+      forwardFillMissingValues();
+      detectUniverseAndMetrics();
+      calculateReturns();
+
+      state.selectedCountries = [...state.countries];
+      state.selectedMetrics = state.metrics.filter(m => m !== 'Precio');
+
+      if (!state.selectedMetrics.length) {
+        state.selectedMetrics = [...state.metrics];
+      }
+
+      setInitialVisualRange();
+      buildFilters();
+      recalculateRulesAndRender();
+
+      $('loadStatus').className = 'msg ok';
+      $('loadStatus').textContent =
+        `BD.csv cargado correctamente. Separador detectado: ${
+          state.csvDelimiter === '\t' ? 'tab' : state.csvDelimiter
+        }`;
+    } catch (e) {
+      $('loadStatus').className = 'msg error';
+      $('loadStatus').textContent = e.message;
+    }
+  }
+
+  function parseCsv(text) {
+    state.dates = [];
+    state.data = {};
+
+    const lines = text
+      .replace(/^\uFEFF/, '')
+      .split(/\r?\n/)
+      .filter(l => l.trim().length);
+
+    if (lines.length < 2) {
+      throw new Error('BD.csv no contiene suficientes filas.');
+    }
+
+    const delimiter = detectDelimiter(lines[0]);
+    state.csvDelimiter = delimiter;
+
+    const headers = splitCsvLine(lines[0], delimiter).map(cleanHeader);
+
+    if (cleanHeader(headers[0]) !== 'Fecha') {
+      throw new Error(
+        `La primera columna debe llamarse Fecha. Detectado: "${headers[0]}". Separador detectado: "${delimiter}".`
+      );
+    }
+
+    headers.slice(1).forEach(h => {
+      if (h) state.data[h] = [];
+    });
+
+    for (let i = 1; i < lines.length; i++) {
+      const parts = splitCsvLine(lines[i], delimiter);
+      const d = parseDate(parts[0]);
+
+      if (!d) continue;
+
+      state.dates.push(d);
+
+      headers.slice(1).forEach((h, j) => {
+        if (h) state.data[h].push(parseNumber(parts[j + 1]));
+      });
+    }
+
+    if (!state.dates.length) {
+      throw new Error('No se detectaron fechas válidas en BD.csv.');
+    }
+  }
+
+  function detectDelimiter(headerLine) {
+    const candidates = [';', ',', '\t', '|'];
+    let best = ';';
+    let bestCount = -1;
+
+    for (const d of candidates) {
+      const count = splitCsvLine(headerLine, d).length;
+
+      if (count > bestCount) {
+        best = d;
+        bestCount = count;
+      }
+    }
+
+    return best;
+  }
+
+  function splitCsvLine(line, delimiter) {
+    const out = [];
+    let cur = '';
+    let inQuotes = false;
+
+    for (let i = 0; i < String(line).length; i++) {
+      const ch = line[i];
+      const next = line[i + 1];
+
+      if (ch === '"' && inQuotes && next === '"') {
+        cur += '"';
+        i++;
+        continue;
+      }
+
+      if (ch === '"') {
+        inQuotes = !inQuotes;
+        continue;
+      }
+
+      if (ch === delimiter && !inQuotes) {
+        out.push(cur);
+        cur = '';
+        continue;
+      }
+
+      cur += ch;
+    }
+
+    out.push(cur);
+    return out;
+  }
+
+  function cleanHeader(x) {
+    return String(x ?? '')
+      .replace(/^\uFEFF/, '')
+      .replace(/^"|"$/g, '')
+      .trim();
+  }
+
+  function parseDate(s) {
+    if (!s) return null;
+
+    const t = String(s)
+      .trim()
+      .replace(/^"|"$/g, '');
+
+    let d;
+
+    if (/^\d{4}-\d{1,2}-\d{1,2}/.test(t)) {
+      d = new Date(t.slice(0, 10) + 'T00:00:00');
+    } else {
+      const p = t.split(/[\/\-.]/).map(Number);
+
+      if (p.length >= 3) {
+        d = p[0] > 1900
+          ? new Date(p[0], p[1] - 1, p[2])
+          : new Date(p[2], p[1] - 1, p[0]);
+      }
+    }
+
+    return d && !isNaN(d) ? d : null;
+  }
+
+  function parseNumber(x) {
+    if (x == null) return NaN;
+
+    let s = String(x)
+      .trim()
+      .replace(/^"|"$/g, '')
+      .replace(/\s/g, '');
+
+    if (!s) return NaN;
+
+    if (s.includes(',') && s.includes('.')) {
+      s = s.replace(/\./g, '').replace(',', '.');
+    } else if (s.includes(',')) {
+      s = s.replace(',', '.');
+    }
+
+    const n = Number(s);
+    return Number.isFinite(n) ? n : NaN;
+  }
+
+  function forwardFillMissingValues() {
+    Object.keys(state.data).forEach(k => {
+      let last = NaN;
+
+      state.data[k] = state.data[k].map(v => {
+        if (Number.isFinite(v)) {
+          last = v;
+          return v;
+        }
+
+        return last;
+      });
+    });
+  }
+
+  function detectUniverseAndMetrics() {
+    const countries = new Set();
+    const metrics = new Set();
+
+    Object.keys(state.data).forEach(col => {
+      const idx = col.indexOf('_');
+
+      if (idx < 1) return;
+
+      countries.add(col.slice(0, idx));
+      metrics.add(col.slice(idx + 1));
+    });
+
+    state.countries = [...countries].sort((a, b) => {
+      const ia = UNIVERSE_ORDER.indexOf(a) < 0 ? 99 : UNIVERSE_ORDER.indexOf(a);
+      const ib = UNIVERSE_ORDER.indexOf(b) < 0 ? 99 : UNIVERSE_ORDER.indexOf(b);
+
+      return ia - ib || a.localeCompare(b);
+    });
+
+    state.metrics = [...metrics].sort((a, b) =>
+      a === 'Precio'
+        ? 1
+        : b === 'Precio'
+          ? -1
+          : a.localeCompare(b)
+    );
+  }
+
+  function calculateReturns() {
+    state.returns = {};
+
+    state.countries.forEach(c => {
+      const p = series(c, 'Precio');
+
+      state.returns[c] = p.map((v, i) =>
+        i === 0 ||
+        !Number.isFinite(v) ||
+        !Number.isFinite(p[i - 1]) ||
+        p[i - 1] === 0
+          ? NaN
+          : v / p[i - 1] - 1
+      );
+    });
+  }
+
+  function series(c, m) {
+    return state.data[`${c}_${m}`] || [];
+  }
+
+  function commonStartDate(
+    countries = state.selectedCountries,
+    metrics = state.selectedMetrics
+  ) {
+    let idx = 0;
+
+    countries.forEach(c => {
+      metrics.forEach(m => {
+        const k = series(c, m).findIndex(Number.isFinite);
+
+        if (k > idx) idx = k;
+      });
+    });
+
+    return state.dates[idx];
+  }
+
+  function setInitialVisualRange() {
+    state.visualStart = commonStartDate() || state.dates[0];
+    state.visualEnd = state.dates[state.dates.length - 1];
+  }
+
+  function buildFilters() {
+    const f = $('filters');
+
+    f.innerHTML = '';
+
+    f.appendChild(
+      checkField(
+        'Países / buckets',
+        'countries',
+        state.countries,
+        state.selectedCountries
+      )
+    );
+
+    f.appendChild(
+      checkField(
+        'Métricas',
+        'metrics',
+        state.metrics,
+        state.selectedMetrics
+      )
+    );
+
+    f.insertAdjacentHTML(
+      'beforeend',
+      `
+      <div class="field">
+        <label>Fecha inicio visual</label>
+        <input id="startDate" type="date" value="${toInputDate(state.visualStart)}">
+      </div>
+      <div class="field">
+        <label>Fecha fin visual</label>
+        <input id="endDate" type="date" value="${toInputDate(state.visualEnd)}">
+      </div>
+      `
+    );
+
+    f.querySelectorAll('input[type=checkbox]').forEach(x => {
+      x.addEventListener('change', onFilterChange);
+    });
+
+    $('startDate').addEventListener('change', e => {
+      state.visualStart = new Date(e.target.value + 'T00:00:00');
+      updateAllViews(false);
+    });
+
+    $('endDate').addEventListener('change', e => {
+      state.visualEnd = new Date(e.target.value + 'T00:00:00');
+      updateAllViews(false);
+    });
+
+    buildQuickRanges();
+  }
+
+  function checkField(label, type, items, selected) {
+    const div = document.createElement('div');
+    div.className = 'field';
+
+    div.innerHTML = `
+      <label>${label}</label>
+      <div class="checklist">
+        ${items.map(x => `
+          <label>
+            <input
+              type="checkbox"
+              data-type="${type}"
+              value="${escapeHtml(x)}"
+              ${selected.includes(x) ? 'checked' : ''}
+            >
+            ${escapeHtml(x)}
+          </label>
+        `).join('')}
+      </div>
+    `;
+
+    return div;
+  }
+
+  function onFilterChange() {
+    state.selectedCountries = [
+      ...document.querySelectorAll('input[data-type=countries]:checked')
+    ].map(x => x.value);
+
+    state.selectedMetrics = [
+      ...document.querySelectorAll('input[data-type=metrics]:checked')
+    ].map(x => x.value);
+
+    recalculateRulesAndRender();
+  }
+
+  function buildQuickRanges() {
+    const q = $('quickRanges');
+
+    q.innerHTML = '';
+
+    ['YTD', '6M', '1Y', '2Y', '5Y', '10Y', 'Desde inicio'].forEach(r => {
+      const b = document.createElement('button');
+
+      b.className = 'btn';
+      b.textContent = r;
+      b.onclick = () => setQuickRange(r);
+
+      q.appendChild(b);
+    });
+  }
+
+  function setQuickRange(r) {
+    const end = state.dates[state.dates.length - 1];
+    let start = new Date(end);
+
+    if (r === 'YTD') {
+      start = new Date(end.getFullYear(), 0, 1);
+    } else if (r === 'Desde inicio') {
+      start = commonStartDate() || state.dates[0];
+    } else {
+      const n = parseInt(r, 10);
+      start.setMonth(start.getMonth() - (r.includes('M') ? n : n * 12));
+    }
+
+    state.visualStart = start;
+    state.visualEnd = end;
+
+    $('startDate').value = toInputDate(start);
+    $('endDate').value = toInputDate(end);
+
+    updateAllViews(false);
+  }
+
+  function recalculateRulesAndRender() {
+    if (!state.selectedCountries.length || !state.selectedMetrics.length) {
+      state.baseRules = [];
+      state.allRules = [...state.combinedRules];
+      updateAllViews(true);
+      return;
+    }
+
+    state.baseRules = buildBaseRules();
+    state.combinedRules = state.combinedRules
+      .map(recomputeCombinedRule)
+      .filter(Boolean);
+
+    state.allRules = [...state.baseRules, ...state.combinedRules];
+
+    if (!state.allRules.some(r => r.id === state.activeRuleId)) {
+      state.activeRuleId = state.allRules[0]?.id || null;
+    }
+
+    updateAllViews(true);
+  }
+
+  function buildBaseRules() {
+    const rules = [];
+
+    state.selectedMetrics
+      .filter(m => m !== 'Precio')
+      .forEach(metric => {
+        Object.entries(WINDOWS).forEach(([label, days]) => {
+          const direct = buildSingleRule(metric, label, days, 1);
+          const contra = buildSingleRule(metric, label, days, -1);
+
+          const ad = direct.metrics.alphaCum;
+          const ac = contra.metrics.alphaCum;
+
+          if (Number.isFinite(ad) && Number.isFinite(ac) && ad === ac) {
+            rules.push(direct, contra);
+          } else {
+            rules.push(ad >= ac ? direct : contra);
+          }
+        });
+      });
+
+    return rules;
+  }
+
+  function buildSingleRule(metric, winLabel, days, orientationSign) {
+    const z = calculateRollingZScore(metric, days);
+    const weights = buildStrategyWeights(z, orientationSign);
+    const perf = evaluateRulePerformance(weights);
+
+    const orientation = orientationSign === 1 ? 'Direct' : 'Contrarian';
+    const id = `base|${metric}|${winLabel}|${orientation}`;
+
+    return {
+      id,
+      name: `Regla ${shortMetric(metric)} ${winLabel} (${orientation})`,
+      type: 'base',
+      metric,
+      window: winLabel,
+      orientation,
+      countries: [...state.selectedCountries],
+      zScores: z,
+      weights,
+      returns: perf.returns,
+      curve: perf.curve,
+      validStart: perf.validStart,
+      metrics: calculateMetrics(perf.returns, perf.validStart),
+      components: []
+    };
+  }
+
+  function calculateRollingZScore(metric, windowDays) {
+    const out = {};
+
+    state.selectedCountries.forEach(c => {
+      const s = series(c, metric);
+
+      out[c] = s.map((v, i) => {
+        const d = state.dates[i];
+        const ageDays = (d - state.dates[0]) / 86400000;
+
+        if (ageDays < windowDays || !Number.isFinite(v)) return 0;
+
+        const cutoff = new Date(d);
+        cutoff.setDate(cutoff.getDate() - windowDays);
+
+        let start = i;
+
+        while (start > 0 && state.dates[start - 1] >= cutoff) {
+          start--;
+        }
+
+        const hist = s.slice(start, i).filter(Number.isFinite);
+
+        if (hist.length < 2) return 0;
+
+        const mean = hist.reduce((a, b) => a + b, 0) / hist.length;
+        const sd = Math.sqrt(
+          hist.reduce((a, b) => a + (b - mean) ** 2, 0) /
+          (hist.length - 1)
+        );
+
+        return sd > EPS ? (v - mean) / sd : 0;
+      });
+    });
+
+    return out;
+  }
+
+  function buildStrategyWeights(zScores, sign = 1) {
+    const n = state.dates.length;
+    const weights = {};
+
+    state.selectedCountries.forEach(c => {
+      weights[c] = Array(n).fill(0);
+    });
+
+    for (let i = 0; i < n; i++) {
+      const raw = {};
+
+      state.selectedCountries.forEach(c => {
+        raw[c] = sign * (zScores[c]?.[i] || 0);
+      });
+
+      const mean =
+        state.selectedCountries.reduce((a, c) => a + raw[c], 0) /
+        (state.selectedCountries.length || 1);
+
+      const centered = {};
+
+      state.selectedCountries.forEach(c => {
+        centered[c] = raw[c] - mean;
+      });
+
+      const norm = normalizePortfolioWeights(centered);
+
+      state.selectedCountries.forEach(c => {
+        weights[c][i] = norm[c] || 0;
+      });
+    }
+
+    return weights;
+  }
+
+  function normalizePortfolioWeights(w) {
+    const out = { ...w };
+    const keys = Object.keys(out);
+
+    if (!keys.length) return out;
+
+    let sum = keys.reduce((a, k) => a + (out[k] || 0), 0);
+
+    keys.forEach(k => {
+      out[k] -= sum / keys.length;
+    });
+
+    let gross = keys.reduce((a, k) => a + Math.abs(out[k]), 0);
+
+    if (gross > EPS) {
+      keys.forEach(k => {
+        out[k] /= gross;
+      });
+    }
+
+    let maxAbs = Math.max(0, ...keys.map(k => Math.abs(out[k])));
+    let scale = 1;
+
+    if (maxAbs > 0.5) {
+      scale = Math.min(scale, 0.5 / maxAbs);
+    }
+
+    gross = keys.reduce((a, k) => a + Math.abs(out[k]), 0);
+
+    if (gross > 1) {
+      scale = Math.min(scale, 1 / gross);
+    }
+
+    keys.forEach(k => {
+      out[k] *= scale;
+    });
+
+    sum = keys.reduce((a, k) => a + out[k], 0);
+
+    keys.forEach(k => {
+      out[k] -= sum / keys.length;
+    });
+
+    return out;
+  }
+
+  function evaluateRulePerformance(weights) {
+    const n = state.dates.length;
+    const ret = Array(n).fill(NaN);
+
+    let validStart = null;
+
+    for (let i = 1; i < n; i++) {
+      let r = 0;
+      let ok = false;
+
+      state.selectedCountries.forEach(c => {
+        const w = weights[c]?.[i - 1] || 0;
+        const rr = state.returns[c]?.[i];
+
+        if (Number.isFinite(rr) && Math.abs(w) > EPS) {
+          r += w * rr;
+          ok = true;
+        }
+      });
+
+      const gross = state.selectedCountries.reduce(
+        (a, c) => a + Math.abs(weights[c]?.[i - 1] || 0),
+        0
+      );
+
+      if (ok && gross > EPS) {
+        ret[i] = r;
+
+        if (validStart === null) validStart = i;
+      }
+    }
+
+    const curve = [];
+    let acc = 100;
+
+    for (let i = 0; i < n; i++) {
+      if (i < validStart || validStart === null) {
+        curve[i] = NaN;
+      } else {
+        if (Number.isFinite(ret[i])) acc *= 1 + ret[i];
+        curve[i] = acc;
+      }
+    }
+
+    return {
+      returns: ret,
+      curve,
+      validStart
+    };
+  }
+
+  function calculateMetrics(ret, validStart) {
+    const vals = ret
+      .slice(validStart ?? ret.length)
+      .filter(Number.isFinite);
+
+    const n = vals.length;
+
+    if (!n) {
+      return {
+        alphaCum: NaN,
+        alphaAnn: NaN,
+        irAnn: NaN,
+        sortinoAnn: NaN,
+        maxDD: NaN,
+        hitRatio: NaN,
+        volAnn: NaN,
+        n: 0
+      };
+    }
+
+    const alphaCum = vals.reduce((a, b) => a * (1 + b), 1) - 1;
+    const mean = vals.reduce((a, b) => a + b, 0) / n;
+    const sd = Math.sqrt(
+      vals.reduce((a, b) => a + (b - mean) ** 2, 0) /
+      (n - 1 || 1)
+    );
+
+    const down = vals.filter(x => x < 0);
+    const dsd = Math.sqrt(
+      down.reduce((a, b) => a + b * b, 0) /
+      (down.length || 1)
+    );
+
+    let acc = 100;
+    let peak = 100;
+    let mdd = 0;
+
+    vals.forEach(r => {
+      acc *= 1 + r;
+      peak = Math.max(peak, acc);
+      mdd = Math.min(mdd, acc / peak - 1);
+    });
+
+    return {
+      alphaCum,
+      alphaAnn: Math.pow(1 + alphaCum, 252 / n) - 1,
+      irAnn: sd > EPS ? mean / sd * Math.sqrt(252) : NaN,
+      sortinoAnn: dsd > EPS ? mean / dsd * Math.sqrt(252) : NaN,
+      maxDD: mdd,
+      hitRatio: vals.filter(x => x > 0).length / n,
+      volAnn: sd * Math.sqrt(252),
+      n
+    };
+  }
+
+  function buildCombinedRuleManager() {
+    const el = $('combinedManager');
+    const rules = [...state.baseRules, ...state.combinedRules];
+
+    el.innerHTML = `
+      <div class="combine-grid">
+        <div>
+          <div class="field">
+            <label>Nombre</label>
+            <input id="combinedName" placeholder="ReglaCombinada${state.nextCombined}">
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" id="createCombined">Crear regla combinada</button>
+            <button class="btn danger" id="clearCombined">Borrar reglas</button>
+          </div>
+          <div class="note">
+            Pesos negativos permitidos. La suma debe ser exactamente 1.
+          </div>
+        </div>
+
+        <div class="rule-picker">
+          ${
+            rules.map(r => `
+              <div class="pick-row">
+                <input class="combine-check" type="checkbox" value="${escapeHtml(r.id)}">
+                <span title="${escapeHtml(r.name)}">${escapeHtml(r.name)}</span>
+                <input
+                  data-weight-for="${escapeHtml(r.id)}"
+                  type="number"
+                  step="0.01"
+                  value="0"
+                >
+              </div>
+            `).join('') || '<div class="msg">No hay reglas disponibles.</div>'
+          }
+        </div>
+      </div>
+
+      <h2 style="margin-top:16px">Reglas combinadas creadas</h2>
+      <div>
+        ${
+          state.combinedRules.map(r => `
+            <span class="pill">
+              ${escapeHtml(r.name)}
+              <button
+                class="btn danger"
+                style="padding:2px 6px;margin-left:5px"
+                onclick="App.deleteCombinedRule('${r.id}')"
+              >
+                ×
+              </button>
+            </span>
+          `).join('') || '<div class="msg">Aún no hay reglas combinadas.</div>'
+        }
+      </div>
+    `;
+
+    $('createCombined').onclick = createCombinedRule;
+
+    $('clearCombined').onclick = () => {
+      state.combinedRules = [];
+      state.allRules = [...state.baseRules];
+      state.activeRuleId = state.allRules[0]?.id || null;
+      updateAllViews(true);
+    };
+
+    el.querySelectorAll('.combine-check').forEach(ch => {
+      ch.onchange = setEqualWeights;
+    });
+
+    renderCombinedRulesTable();
+  }
+
+  function setEqualWeights() {
+    const checked = [...document.querySelectorAll('.combine-check:checked')];
+
+    checked.forEach(ch => {
+      document.querySelector(
+        `input[data-weight-for="${cssEsc(ch.value)}"]`
+      ).value = (1 / checked.length).toFixed(6);
+    });
+  }
+
+  function createCombinedRule() {
+    clearCombineMsg();
+
+    const name =
+      $('combinedName').value.trim() ||
+      `ReglaCombinada${state.nextCombined}`;
+
+    const picked = [...document.querySelectorAll('.combine-check:checked')]
+      .map(ch => ({
+        id: ch.value,
+        weight: parseNumber(
+          document.querySelector(
+            `input[data-weight-for="${cssEsc(ch.value)}"]`
+          ).value
+        )
+      }));
+
+    if (!picked.length) {
+      return combineError('Seleccione al menos una regla.');
+    }
+
+    if (picked.some(p => !Number.isFinite(p.weight))) {
+      return combineError('Todos los pesos deben ser numéricos.');
+    }
+
+    if (Math.abs(picked.reduce((a, b) => a + b.weight, 0) - 1) > 1e-8) {
+      return combineError('Los pesos deben sumar exactamente 1.');
+    }
+
+    const draft = {
+      id: `combined|${Date.now()}|${Math.random().toString(16).slice(2)}`,
+      name,
+      type: 'combinada',
+      metric: 'Combinada',
+      window: '-',
+      orientation: '-',
+      countries: [...state.selectedCountries],
+      components: picked
+    };
+
+    if (hasCircularReference(draft)) {
+      return combineError('Regla circular o inválida detectada.');
+    }
+
+    if (nestingDepth(draft) > 2) {
+      return combineError('Máximo 2 niveles de anidación permitido.');
+    }
+
+    const rule = recomputeCombinedRule(draft);
+
+    if (!rule) {
+      return combineError('No fue posible calcular la regla combinada.');
+    }
+
+    state.combinedRules.push(rule);
+    state.nextCombined++;
+    state.allRules = [...state.baseRules, ...state.combinedRules];
+    state.activeRuleId = rule.id;
+
+    updateAllViews(true);
+    combineOk('Regla combinada creada.');
+  }
+
+  function recomputeCombinedRule(rule) {
+    const all = [...state.baseRules, ...state.combinedRules]
+      .filter(r => r.id !== rule.id);
+
+    const comps = rule.components.map(c => ({
+      rule: all.find(r => r.id === c.id),
+      weight: c.weight
+    }));
+
+    if (comps.some(c => !c.rule)) return null;
+
+    const n = state.dates.length;
+    const weights = {};
+    const zScores = {};
+
+    state.selectedCountries.forEach(c => {
+      weights[c] = Array(n).fill(0);
+      zScores[c] = Array(n).fill(0);
+    });
+
+    for (let i = 0; i < n; i++) {
+      let rawW = {};
+      let rawZ = {};
+
+      state.selectedCountries.forEach(c => {
+        rawW[c] = 0;
+        rawZ[c] = 0;
+      });
+
+      comps.forEach(({ rule: r, weight }) => {
+        state.selectedCountries.forEach(c => {
+          rawW[c] += weight * (r.weights[c]?.[i] || 0);
+          rawZ[c] += weight * (r.zScores[c]?.[i] || 0);
+        });
+      });
+
+      rawW = normalizePortfolioWeights(rawW);
+
+      state.selectedCountries.forEach(c => {
+        weights[c][i] = rawW[c] || 0;
+        zScores[c][i] = rawZ[c] || 0;
+      });
+    }
+
+    const perf = evaluateRulePerformance(weights);
+
+    return {
+      ...rule,
+      type: 'combinada',
+      metric: 'Combinada',
+      window: '-',
+      orientation: '-',
+      countries: [...state.selectedCountries],
+      weights,
+      zScores,
+      returns: perf.returns,
+      curve: perf.curve,
+      validStart: perf.validStart,
+      metrics: calculateMetrics(perf.returns, perf.validStart)
+    };
+  }
+
+  function hasCircularReference(rule) {
+    const graph = {};
+
+    state.combinedRules.forEach(r => {
+      graph[r.id] = r.components.map(c => c.id);
+    });
+
+    graph[rule.id] = rule.components.map(c => c.id);
+
+    const visit = (id, seen = new Set()) => {
+      if (seen.has(id)) return true;
+
+      seen.add(id);
+
+      return (graph[id] || []).some(x => visit(x, new Set(seen)));
+    };
+
+    return visit(rule.id);
+  }
+
+  function nestingDepth(rule) {
+    const get = id => state.combinedRules.find(r => r.id === id);
+
+    const depth = r =>
+      !r || r.type !== 'combinada'
+        ? 0
+        : 1 + Math.max(0, ...r.components.map(c => depth(get(c.id))));
+
+    return depth(rule);
+  }
+
+  function deleteCombinedRule(id) {
+    state.combinedRules = state.combinedRules.filter(
+      r => r.id !== id && !r.components.some(c => c.id === id)
+    );
+
+    state.allRules = [...state.baseRules, ...state.combinedRules];
+
+    if (state.activeRuleId === id) {
+      state.activeRuleId = state.allRules[0]?.id || null;
+    }
+
+    updateAllViews(true);
+  }
+
+  function updateAllViews(rebuildManagers = false) {
+    buildBaseCharts();
+    renderPerformanceChart();
+    buildRankingTable();
+
+    if (rebuildManagers) {
+      buildCombinedRuleManager();
+    }
+
+    renderActiveStrategySelector();
+    renderActiveStrategyDetails();
+    renderSummary();
+  }
+
+  function buildBaseCharts() {
+    const box = $('baseCharts');
+
+    box.innerHTML = '';
+
+    if (!state.selectedCountries.length || !state.selectedMetrics.length) {
+      box.innerHTML =
+        '<div class="msg error">Seleccione al menos un país y una métrica.</div>';
+      return;
+    }
+
+    state.selectedMetrics.forEach(metric => {
+      const div = document.createElement('div');
+      div.className = 'chart js-plot';
+
+      box.appendChild(div);
+
+      const traces = state.selectedCountries.map((c, i) => ({
+        x: filterDates(),
+        y: filterSeries(series(c, metric)),
+        mode: 'lines',
+        name: c,
+        line: {
+          color: COLORS[i % COLORS.length],
+          width: 2
+        }
+      }));
+
+      Plotly.newPlot(
+        div,
+        traces,
+        layout(`Datos base: ${metric}`, metric),
+        config()
+      );
+    });
+  }
+
+  function renderPerformanceChart() {
+    const top = [...state.baseRules]
+      .sort((a, b) => (b.metrics.irAnn ?? -99) - (a.metrics.irAnn ?? -99))
+      .slice(0, 10);
+
+    Plotly.newPlot(
+      'performanceChart',
+      top.map((r, i) => ({
+        x: filterDates(),
+        y: filterSeries(r.curve),
+        mode: 'lines',
+        name: r.name,
+        line: {
+          color: COLORS[i % COLORS.length],
+          width: 2
+        }
+      })),
+      layout('Curva acumulada de alpha | Top 10 reglas base', 'Índice 100'),
+      config()
+    );
+  }
+
+  function buildRankingTable() {
+    const rows = [...state.allRules];
+    const { key, dir } = state.rankingSort;
+
+    rows.sort((a, b) => cmp(getCol(a, key), getCol(b, key), dir));
+
+    const headers = [
+      ['name', 'nombre'],
+      ['type', 'tipo'],
+      ['metric', 'métrica'],
+      ['window', 'ventana'],
+      ['orientation', 'orientación'],
+      ['countries', 'países incluidos'],
+      ['alphaCum', 'alpha acumulado'],
+      ['alphaAnn', 'alpha anualizado'],
+      ['irAnn', 'IR anualizado'],
+      ['sortinoAnn', 'Sortino anualizado'],
+      ['maxDD', 'max drawdown'],
+      ['hitRatio', 'hit ratio'],
+      ['volAnn', 'desv. estándar anualizada'],
+      ['n', 'obs. válidas']
+    ];
+
+    $('rankingTable').innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            ${headers.map(h => `
+              <th data-key="${h[0]}">
+                ${h[1]} ${key === h[0] ? (dir === 'desc' ? '▼' : '▲') : ''}
+              </th>
+            `).join('')}
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.map(r => `
+              <tr>
+                <td>${escapeHtml(r.name)}</td>
+                <td>${r.type}</td>
+                <td>${escapeHtml(r.metric)}</td>
+                <td>${r.window}</td>
+                <td>${r.orientation}</td>
+                <td>${escapeHtml(r.countries.join(', '))}</td>
+                <td>${fmt.pct(r.metrics.alphaCum)}</td>
+                <td>${fmt.pct(r.metrics.alphaAnn)}</td>
+                <td>${fmt.num(r.metrics.irAnn)}</td>
+                <td>${fmt.num(r.metrics.sortinoAnn)}</td>
+                <td>${fmt.pct(r.metrics.maxDD)}</td>
+                <td>${fmt.pct(r.metrics.hitRatio)}</td>
+                <td>${fmt.pct(r.metrics.volAnn)}</td>
+                <td>${fmt.int(r.metrics.n)}</td>
+              </tr>
+            `).join('') ||
+            '<tr><td colspan="14">No hay reglas calculables.</td></tr>'
+          }
+        </tbody>
+      </table>
+    `;
+
+    document.querySelectorAll('#rankingTable th').forEach(th => {
+      th.onclick = () => {
+        const k = th.dataset.key;
+
+        state.rankingSort = {
+          key: k,
+          dir:
+            state.rankingSort.key === k &&
+            state.rankingSort.dir === 'desc'
+              ? 'asc'
+              : 'desc'
+        };
+
+        buildRankingTable();
+      };
+    });
+  }
+
+  function renderCombinedRulesTable() {
+    const rows = state.combinedRules.flatMap(r =>
+      r.components.map(c => ({
+        name: r.name,
+        component: findRuleName(c.id),
+        weight: c.weight
+      }))
+    );
+
+    $('combinedRulesTable').innerHTML = `
+      <table>
+        <thead>
+          <tr>
+            <th>Regla combinada</th>
+            <th>Subregla</th>
+            <th>Peso</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${
+            rows.map(x => `
+              <tr>
+                <td>${escapeHtml(x.name)}</td>
+                <td>${escapeHtml(x.component)}</td>
+                <td>${fmt.num(x.weight)}</td>
+              </tr>
+            `).join('') ||
+            '<tr><td colspan="3">Sin subreglas.</td></tr>'
+          }
+        </tbody>
+      </table>
+    `;
+  }
+
+  function renderActiveStrategySelector() {
+    const s = $('activeStrategySelect');
+
+    s.innerHTML = state.allRules.map(r => `
+      <option
+        value="${escapeHtml(r.id)}"
+        ${r.id === state.activeRuleId ? 'selected' : ''}
+      >
+        ${escapeHtml(r.name)}
+      </option>
+    `).join('');
+
+    s.onchange = e => {
+      state.activeRuleId = e.target.value;
+      renderActiveStrategyDetails();
+    };
+  }
+
+  function renderActiveStrategyDetails() {
+    const r = state.allRules.find(x => x.id === state.activeRuleId);
+
+    if (!r) {
+      Plotly.purge('weightsChart');
+      Plotly.purge('zscoreChart');
+      return;
+    }
+
+    renderWeightsChart(r);
+    renderZScoreChart(r);
+  }
+
+  function renderWeightsChart(r) {
+    Plotly.newPlot(
+      'weightsChart',
+      state.selectedCountries.map((c, i) => ({
+        x: filterDates(),
+        y: filterSeries(r.weights[c] || []),
+        mode: 'lines',
+        name: c,
+        line: {
+          color: COLORS[i % COLORS.length],
+          width: 2
+        }
+      })),
+      layout(`Pesos: ${r.name}`, 'Peso'),
+      config()
+    );
+  }
+
+  function renderZScoreChart(r) {
+    Plotly.newPlot(
+      'zscoreChart',
+      state.selectedCountries.map((c, i) => ({
+        x: filterDates(),
+        y: filterSeries(r.zScores[c] || []),
+        mode: 'lines',
+        name: c,
+        line: {
+          color: COLORS[i % COLORS.length],
+          width: 2
+        }
+      })),
+      layout(`ZScores: ${r.name}`, 'ZScore'),
+      config()
+    );
+  }
+
+  function renderSummary() {
+    const best = [...state.allRules].sort(
+      (a, b) => (b.metrics.irAnn ?? -99) - (a.metrics.irAnn ?? -99)
+    )[0];
+
+    $('summaryBox').innerHTML = best
+      ? `
+        <b>Mejor IR:</b> ${escapeHtml(best.name)}<br>
+        <b>IR anualizado:</b> ${fmt.num(best.metrics.irAnn)}<br>
+        <b>Alpha acumulado:</b> ${fmt.pct(best.metrics.alphaCum)}<br>
+        <b>Reglas base:</b> ${state.baseRules.length}<br>
+        <b>Combinadas:</b> ${state.combinedRules.length}
+      `
+      : 'No hay reglas calculables con la selección actual.';
+  }
+
+  function layout(title, ytitle) {
+    return {
+      title: {
+        text: title,
+        font: {
+          family: 'SuraSans',
+          color: css('--text'),
+          size: 15
+        }
+      },
+      paper_bgcolor: css('--card'),
+      plot_bgcolor: css('--card'),
+      font: {
+        family: 'SuraSans',
+        color: css('--text')
+      },
+      margin: {
+        l: 55,
+        r: 20,
+        t: 48,
+        b: 45
+      },
+      xaxis: {
+        gridcolor: css('--grid'),
+        zerolinecolor: css('--border')
+      },
+      yaxis: {
+        title: ytitle,
+        gridcolor: css('--grid'),
+        zerolinecolor: css('--border')
+      },
+      legend: {
+        orientation: 'h'
+      },
+      hovermode: 'x unified'
+    };
+  }
+
+  function config() {
+    return {
+      responsive: true,
+      displaylogo: false,
+      modeBarButtonsToRemove: ['lasso2d', 'select2d']
+    };
+  }
+
+  function renderThemeToggle() {
+    $('themeToggle').onclick = () => {
+      state.theme = state.theme === 'dark' ? 'light' : 'dark';
+      applyTheme();
+    };
+
+    applyTheme();
+  }
+
+  function applyTheme() {
+    document.documentElement.dataset.theme = state.theme;
+    $('themeToggle').textContent = state.theme === 'dark' ? '☀' : '☾';
+
+    document.querySelectorAll(
+      '.js-plot,#performanceChart,#weightsChart,#zscoreChart'
+    ).forEach(d => {
+      try {
+        Plotly.relayout(d, {
+          paper_bgcolor: css('--card'),
+          plot_bgcolor: css('--card'),
+          'font.color': css('--text'),
+          'xaxis.gridcolor': css('--grid'),
+          'yaxis.gridcolor': css('--grid')
+        });
+      } catch (e) {}
+    });
+  }
+
+  function filterDates() {
+    return state.dates
+      .filter(d => d >= state.visualStart && d <= state.visualEnd)
+      .map(toInputDate);
+  }
+
+  function filterSeries(arr) {
+    return arr
+      .filter((_, i) =>
+        state.dates[i] >= state.visualStart &&
+        state.dates[i] <= state.visualEnd
+      )
+      .map(v => Number.isFinite(v) ? v : null);
+  }
+
+  function toInputDate(d) {
+    return d.toISOString().slice(0, 10);
+  }
+
+  function shortMetric(m) {
+    return m.replace(/\(FWD\)/i, '').trim();
+  }
+
+  function css(v) {
+    return getComputedStyle(document.documentElement)
+      .getPropertyValue(v)
+      .trim();
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>'"]/g, c => ({
+      '&': '&amp;',
+      '<': '&lt;',
+      '>': '&gt;',
+      "'": '&#39;',
+      '"': '&quot;'
+    }[c]));
+  }
+
+  function cssEsc(s) {
+    return String(s)
+      .replace(/\\/g, '\\\\')
+      .replace(/"/g, '\\"');
+  }
+
+  function getCol(r, k) {
+    return k in r ? r[k] : r.metrics[k];
+  }
+
+  function cmp(a, b, dir) {
+    if (Array.isArray(a)) a = a.join(', ');
+    if (Array.isArray(b)) b = b.join(', ');
+
+    if (typeof a === 'string' || typeof b === 'string') {
+      return (dir === 'desc' ? -1 : 1) *
+        String(a).localeCompare(String(b));
+    }
+
+    a = Number.isFinite(a) ? a : -Infinity;
+    b = Number.isFinite(b) ? b : -Infinity;
+
+    return dir === 'desc' ? b - a : a - b;
+  }
+
+  function findRuleName(id) {
+    return (
+      [...state.baseRules, ...state.combinedRules].find(r => r.id === id) ||
+      {}
+    ).name || id;
+  }
+
+  function combineError(t) {
+    $('combineMsg').innerHTML =
+      `<div class="msg error">${escapeHtml(t)}</div>`;
+  }
+
+  function combineOk(t) {
+    $('combineMsg').innerHTML =
+      `<div class="msg ok">${escapeHtml(t)}</div>`;
+  }
+
+  function clearCombineMsg() {
+    $('combineMsg').innerHTML = '';
+  }
+
+  return {
+    initApp,
+    deleteCombinedRule
+  };
+})();
+
+document.addEventListener('DOMContentLoaded', App.initApp);
+</script>
+</body>
+</html>
+``
